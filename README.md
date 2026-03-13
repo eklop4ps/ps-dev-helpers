@@ -15,7 +15,7 @@ You need to run this only once.
 
 ## Scripts
 
-## FindALObjectIdRanges.ps1 (v0.1])
+## FindALObjectIdRanges.ps1 (v0.1)
 This scripts collects the IDs of the AL objects in the app, divides it into ranges and outputs a JSON-snippet that can be copied to the app.json key `idRanges`.
 
 **Usage**: run `GetRanges` from a `/app` or `/test` directory. Then copy the JSON-snippet to the app.json

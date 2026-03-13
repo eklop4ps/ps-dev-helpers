@@ -17,6 +17,8 @@ function GetALObjectIdRanges {
     $objectTypes = @('page', 'pageextension', 'table', 'tableextension', 'codeunit', 'report', 'xmlport', 'query', 'permissionset', 'permissionsetextension', 'enum', 'enumextension');
     $objectTypeRegex = '^(' + ($objectTypes -join '|') + ')\s+(\w+)'
 
+    # Iterate through all .al files in the src folder and subfolders, find lines that start with an object declaration and extract the ID if it's a number.
+    # For enums and enumextensions, also extract the values declared within them.
     foreach ($file in (Get-ChildItem -Path "./src/**/*.al" -Recurse)) {
         $firstLines = Get-Content -Path $file.FullName -TotalCount 10
         foreach ($line in $firstLines) {
@@ -55,7 +57,6 @@ function GetALObjectIdRanges {
     }
 
     # Collect ranges from ID list
-
     $start = $null
     $length = 0
     $ranges = @()
