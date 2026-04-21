@@ -10,8 +10,9 @@ You need to run this only once.
 
 ### Add script to profile
 1. Open Powershell and  run `code $profile`
-3. Paste the content of the script you want to use into the profile and save it.
-4. Restart Powershell
+1. Include scripts like this: `. .\<path to repo>\CloneRepo.ps1`.
+1. Check the documentation below to see if you need to make additional changes.
+1. Restart Powershell to reload the profile
 
 ## Scripts
 
