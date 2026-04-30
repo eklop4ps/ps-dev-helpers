@@ -21,11 +21,15 @@ This scripts collects the IDs of the AL objects in the app, divides it into rang
 
 **Usage**: run `GetRanges` from a `/app` or `/test` directory. Then copy the JSON-snippet to the app.json
 
+### RenameSourceFiles
+1. Open Powershell in `/app` or `/test`
+1. Create a `new-names.csv` file in the current directory. It should contain two columns: `old` (current file name) and `new` (desired file name).
+1. Run `renamefiles` to rename the files. 
+
 ### CloneRepo
 This scripts automates the creation of a local dev environment, based on the ticket no you're going to work on.  It assumes you have the required authentication and VS Code set up.
 
 #### Configuration
-
 This scripts needs to know where to clone the repo's. Follow these steps to add the required parameter to your PS profile.
 
 1. Run command 'code `$profile'
