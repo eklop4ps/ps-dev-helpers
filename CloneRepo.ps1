@@ -1,22 +1,49 @@
+function GetPatFromCredentialManager {
+	if(-not ([bool](Get-Module -ListAvailable -Name 'CredentialManager'))) {
+        Write-Host 'Credential Manager module not found. Installing it now..' -ForegroundColor Yellow
+        Install-Module -Name 'CredentialManager' -Force
+    }
+	Import-Module -Name CredentialManager
+
+    if(-not [bool](Get-StoredCredential -Target devops)) {
+        Write-Error 'No DevOps PAT found in CredentialManager. Please set it first.'
+		Write-Host "You can generate a PAT in Azure DevOps by going to User Settings > Personal Access Tokens > New Token." -ForegroundColor Yellow
+		Write-Host "In Windows, go to Credential Manager > Windows Credentials > Add a generic credential" -ForegroundColor Yellow
+		Write-Host "Set the 'Internet or network address' to 'devops', username can be anything (e.g. 'pat') and the password should be your DevOps PAT." -ForegroundColor Yellow
+		return
+    }
+
+    $patEncoded = (Get-StoredCredential -Target devops).Password;
+    $ctmu = [System.Runtime.InteropServices.Marshal]::SecureStringToCoTaskMemUnicode($patEncoded);
+    $pat = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($ctmu);
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeCoTaskMemUnicode($ctmu);
+
+    if(-not [bool]$pat) {
+        Write-Error 'No DevOps PAT found in CredentialManager. Please set it first.'
+		return
+    }  
+	
+	return $pat
+}
+
 function CloneRepo {
 
 	# CloneRepo
     # v0.2 - 2026-03-23
 	# This script helps you to clone one of the commonly used repos, create a branch for your issue and open it in VS Code.
+	
+	$pat = GetPatFromCredentialManager
 
-	$repoNames = @(
-		"CAPO Interface"
-		"DSP"
-		"DICO Interface"
-		"Construct NL"
-	)
+	$req = @{'Method' = 'GET';'Uri' = 'https://dev.azure.com/4psnl/4e4c1481-984c-4784-8eb9-988c831c195b/_apis/git/repositories?api-version=7.1';'Headers' = @{Authorization = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$($pat)")) };'ContentType' = 'application/json'}
 
-	$repoUrls = @(
-		"https://4psnl.visualstudio.com/4PS_NL/_git/4PS%20CAPO%20Interface"
-		"https://4psnl.visualstudio.com/4PS_NL/_git/4PS%20DSP"
-		"https://4psnl.visualstudio.com/4PS_NL/_git/4PS%20DICO%20Interface"
-		"https://4psnl.visualstudio.com/4PS_NL/_git/4PSConstructNL"
-	)
+	$repos = Invoke-RestMethod @req
+	
+	$repoSelection = $repos.value | Where-Object { $_.name.StartsWith("4PS") }
+
+	if(-not $repoSelection) {
+		Write-Host "No repositories found or failed to fetch repositories." -ForegroundColor Red
+		return
+	}
 
 	if(-not ([bool]$global:DEV_ROOT)) {
         Write-Host "DEV_ROOT environment variable not set." -ForegroundColor Red
@@ -49,24 +76,31 @@ function CloneRepo {
 
 	Write-Host "Choose repo to clone:" -ForegroundColor Cyan
 
-	for ($i = 0; $i -lt $repoNames.Count; $i++) {
-		Write-Host "[$($i+1)] $($repoNames[$i])"
+	for ($i = 0; $i -lt $repoSelection.Count; $i++) {
+		# remove the first part of the repo name (4PS.) to make it more readable in the selection list 
+		if($i -lt 9) {
+			$spacer = " "
+		} else {
+			$spacer = ""
+		}
+
+		Write-Host "[$($i+1)$($spacer)] $($repoSelection[$i].name.Substring(4))"
 	}
 
-	$choice = Read-Host -Prompt ("Enter choice (1-{0}) or multiple choices separated by comma (e.g. 1,3)" -f $repoNames.Count)
-	if($choice -lt 1 -or $choice -gt ($repoNames.Count+1)) {
-		Write-Host "Invalid choice. " -ForegroundColor Red
+	$choice = [int](Read-Host -Prompt ("Enter choice (1-{0})" -f $repoSelection.Count))
+	if($choice -lt 1 -or $choice -gt $repoSelection.Count) {
+		Write-Host "Invalid choice." -ForegroundColor Red
 		return
 	}
 
     $selected = @{
-		name=$repoNames[$choice-1];
-		url=$repoUrls[$choice-1]
+		name=$repoSelection[$choice-1].name;
+		url=$repoSelection[$choice-1].remoteUrl
 	}
 
-	Write-Host "Cloning "+$selected['name']+"..." -ForegroundColor Green
-	git clone $selected['url'] ("{0}" -f $selected['name'])
-	$repoDir = "./"+("{0}" -f $selected['name'])
+	Write-Host "Cloning "+$selected.name+"..." -ForegroundColor Green
+	git clone $selected.url ("{0}" -f $selected.name)
+	$repoDir = "./"+("{0}" -f $selected.name)
 
 	Set-Location $repoDir
 	$targetBranchName = "feature/FBE-${TicketNo}"
