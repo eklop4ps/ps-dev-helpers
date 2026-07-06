@@ -24,10 +24,12 @@ This scripts collects the IDs of the AL objects in the app, divides it into rang
 ### RenameSourceFiles
 1. Open Powershell in the `/app` or `/test` folder.
 1. Create a `new-names.csv` file in the current directory. It should contain two columns: `old` (current file name) and `new` (desired file name).
-1. Run `renamefiles` to rename the files. 
+1. Run the command `renamefiles` to rename the files. 
 
 ### CloneRepo
 This scripts automates the creation of a local dev environment, based on the ticket no you're going to work on.
+
+Run command `cr` in PowerShell, and follow the steps.
 
 #### Configuration: dev root folder
 
