@@ -11,9 +11,20 @@ function RenameSourceFiles {
 		$newName = $e.new
 
 		if (-not $oldName -or -not $newName) {
-			Write-Host "Invalid row in CSV: each row must have 'old' and 'new' columns." -ForegroundColor Red
-			continue
+			Write-Host ("Invalid row in CSV: '{0}' each row must have 'old' and 'new' columns." -f $oldName) -ForegroundColor Red
+			return
 		}
+
+		# check if new or old name contain a comma
+		if (($oldName -match ",") -or ($newName -match ",")) {
+			Write-Host ("Invalid filename in CSV: '{0}' filenames cannot contain commas." -f $oldName) -ForegroundColor Red
+			return
+		}
+	}
+
+	foreach ($e in $renameList) {
+		$oldName = $e.old
+		$newName = $e.new
 
 		$existingFile = (Get-ChildItem . -Recurse -Filter $oldName).FullName
 

@@ -56,25 +56,31 @@ function CloneRepo {
         return
     }
 
-	Set-Location $global:DEV_ROOT
-	
-	$TicketNo = Read-Host -Prompt 'Enter issue no: '
+	$TicketNo = Read-Host -Prompt 'Enter FBE- Ticket No.'
 	if(-not $TicketNo) {
 		Write-Host "No issue number provided. Aborting." -ForegroundColor Red
 		return
 	}
-	if(-not $TicketNo.StartsWith('FBE-')) {
-		$TargetDir = "FBE-${TicketNo}"
-	}
-	
-	if(-not (Test-Path $TargetDir )) {
-		New-Item -ItemType Directory -Path $TargetDir  | Out-Null
-		Write-Host "Created directory: $TargetDir" -ForegroundColor Green
+
+	if($TicketNo -eq 'here') {
+		$TargetDir = '.'
+	} else {
+		Set-Location $global:DEV_ROOT
+		if(-not $TicketNo.StartsWith('FBE-')) {
+			$TargetDir = "FBE-${TicketNo}"
+		}
+		
+		if(-not (Test-Path $TargetDir )) {
+			New-Item -ItemType Directory -Path $TargetDir  | Out-Null
+			Write-Host "Created directory: $TargetDir" -ForegroundColor Green
+		}
+
+		Set-Location $TargetDir
+
+		Write-Host "Choose repo to clone:" -ForegroundColor Cyan
 	}
 
-	Set-Location $TargetDir
-
-	Write-Host "Choose repo to clone:" -ForegroundColor Cyan
+	$repoSelection = $repoSelection | Sort-Object -Property name 
 
 	for ($i = 0; $i -lt $repoSelection.Count; $i++) {
 		# remove the first part of the repo name (4PS.) to make it more readable in the selection list 
@@ -84,7 +90,13 @@ function CloneRepo {
 			$spacer = ""
 		}
 
-		Write-Host "[$($i+1)$($spacer)] $($repoSelection[$i].name.Substring(4))"
+		if($repoSelection[$i].name.startsWith("4PS ")) {
+			$displayName = $repoSelection[$i].name.Substring(4)
+		} else {
+			$displayName = $repoSelection[$i].name
+		}
+
+		Write-Host "$($i+1)$($spacer) $displayName"
 	}
 
 	$choice = [int](Read-Host -Prompt ("Enter choice (1-{0})" -f $repoSelection.Count))
@@ -98,31 +110,38 @@ function CloneRepo {
 		url=$repoSelection[$choice-1].remoteUrl
 	}
 
-	Write-Host "Cloning "+$selected.name+"..." -ForegroundColor Green
 	git clone $selected.url ("{0}" -f $selected.name)
 	$repoDir = "./"+("{0}" -f $selected.name)
 
 	Set-Location $repoDir
-	$targetBranchName = "feature/FBE-${TicketNo}"
 
-	if(-not ([bool](git branch --list "master"))) {
-		Write-Host "Master branch not found.."
-		return
+	if($TicketNo -eq 'here') {
+		$TicketNo = Read-Host -Prompt 'Enter ticket no. to create a branch (4 digits)'
 	}
 
-	if([bool](git branch --list -r "origin/$targetBranchName")) {
-		git checkout $targetBranchName
-	} else {
-		if((Read-Host -Prompt "Create branch '${targetBranchName}'? (y/n)") -eq 'y') {
-			git checkout -b $targetBranchName master
+	if([bool]$TicketNo) {
+		$targetBranchName = "feature/FBE-${TicketNo}"
+
+		if(-not ([bool](git branch --list "master"))) {
+			Write-Host "Master branch not found.."
+			return
+		}
+
+		if([bool](git branch --list -r "origin/$targetBranchName")) {
+			git checkout $targetBranchName
+		} else {
+			if((Read-Host -Prompt "Create branch '${targetBranchName}'? (y/n)") -eq 'y') {
+				git checkout -b $targetBranchName master
+			}
 		}
 	}
 
-	$workspaceFile = Get-ChildItem -Path "." -Filter "*.code-workspace" -Recurse -File | Select-Object -First 1
-	if($workspaceFile) {
-		code -r $workspaceFile.FullName
+	$appDir = (Get-ChildItem -Recurse -Directory -Filter "app").FullName
+
+	if([bool]$appDir) {
+		code -r $appDir
 	} else {
-		code -r .
+		Invoke-Expression "explorer.exe ."
 	}
 }
 Set-Alias cr CloneRepo
