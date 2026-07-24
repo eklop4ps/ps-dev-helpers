@@ -136,6 +136,7 @@ function Select-MatchingPullRequests {
                 RepositoryId  = $pr.repository.id
                 RepoName      = $pr.repository.name
                 CreatedBy     = $pr.createdBy.displayName
+                CommitCount   = $null
             }
         }
     }
@@ -186,6 +187,52 @@ function Approve-PullRequest {
     }
 }
 
+function Get-PullRequestCommitCount {
+    param(
+        [string]$RepoId,
+        [int]$PRId
+    )
+
+    try {
+        $url = "$($script:BaseUrl)/git/repositories/$RepoId/pullrequests/$PRId/commits?api-version=7.0"
+        $response = Invoke-RestMethod -Uri $url -Headers $script:Headers -Method Get
+        if ($null -ne $response.count) { return [int]$response.count }
+        if ($response.value) { return @($response.value).Count }
+        return 0
+    }
+    catch {
+        Write-LogError "Failed to fetch commits for PR #$PRId : $_"
+        return -1
+    }
+}
+
+function Close-PullRequest {
+    param(
+        [string]$RepoId,
+        [string]$RepoName,
+        [int]$PRId
+    )
+
+    try {
+        $url = "$($script:BaseUrl)/git/repositories/$RepoId/pullrequests/$PRId`?api-version=7.0"
+        $body = @{ status = 'abandoned' } | ConvertTo-Json
+
+        $patchHeaders = @{
+            Authorization  = $script:Headers.Authorization
+            Accept         = "application/json; api-version=7.0"
+            "Content-Type" = "application/json"
+        }
+
+        $response = Invoke-RestMethod -Uri $url -Headers $patchHeaders -Method Patch -Body $body
+        Write-LogSuccess "Abandoned PR #$PRId ($RepoName)"
+        return $true
+    }
+    catch {
+        Write-LogError "Failed to abandon PR #$PRId ($RepoName) : $_"
+        return $false
+    }
+}
+
 # ---------------------------------------------------------------------------
 # UI actions
 # ---------------------------------------------------------------------------
@@ -193,6 +240,7 @@ function Invoke-FetchPRs {
     $script:ListView.Items.Clear()
     $script:MatchingPRs = @()
     $script:ApproveButton.Enabled = $false
+    $script:AbandonEmptyButton.Enabled = $false
 
     $org   = $script:OrgBox.Text.Trim()
     $proj  = $script:ProjectBox.Text.Trim()
@@ -243,6 +291,13 @@ function Invoke-FetchPRs {
             return
         }
 
+        $j = 0
+        foreach ($pr in $script:MatchingPRs) {
+            $j++
+            Set-Status "Fetching commits ($j / $($script:MatchingPRs.Count))..."
+            $pr.CommitCount = Get-PullRequestCommitCount -RepoId $pr.RepositoryId -PRId $pr.PullRequestId
+        }
+
         foreach ($pr in $script:MatchingPRs) {
             $item = New-Object System.Windows.Forms.ListViewItem($pr.PullRequestId.ToString())
             [void]$item.SubItems.Add($pr.RepoName)
@@ -250,14 +305,18 @@ function Invoke-FetchPRs {
             [void]$item.SubItems.Add($pr.SourceBranch)
             [void]$item.SubItems.Add($pr.TargetBranch)
             [void]$item.SubItems.Add($pr.CreatedBy)
+            $commitText = if ($pr.CommitCount -lt 0) { '?' } else { $pr.CommitCount.ToString() }
+            [void]$item.SubItems.Add($commitText)
             $item.Checked = $true
             $item.Tag     = $pr
             [void]$script:ListView.Items.Add($item)
         }
 
-        Write-LogSuccess "$($script:MatchingPRs.Count) matching PR(s) listed."
-        Set-Status "$($script:MatchingPRs.Count) matching PR(s)."
+        $emptyCount = @($script:MatchingPRs | Where-Object { $_.CommitCount -eq 0 }).Count
+        Write-LogSuccess "$($script:MatchingPRs.Count) matching PR(s) listed ($emptyCount with no commits)."
+        Set-Status "$($script:MatchingPRs.Count) matching PR(s), $emptyCount empty."
         $script:ApproveButton.Enabled = $true
+        $script:AbandonEmptyButton.Enabled = ($emptyCount -gt 0)
     }
     finally {
         $script:FetchButton.Enabled = $true
@@ -320,6 +379,55 @@ function Invoke-ApprovePRs {
     finally {
         $script:ApproveButton.Enabled = $true
         $script:FetchButton.Enabled   = $true
+        Invoke-FetchPRs
+    }
+}
+
+function Invoke-AbandonEmptyPRs {
+    $empty = @($script:MatchingPRs | Where-Object { $_.CommitCount -eq 0 })
+
+    if ($empty.Count -eq 0) {
+        Write-LogWarn "No PRs with zero commits."
+        return
+    }
+
+    if ($script:DryRunBox.Checked) {
+        Write-LogInfo "[DRY RUN] Would abandon $($empty.Count) empty PR(s):"
+        foreach ($pr in $empty) {
+            Write-LogInfo "  - PR #$($pr.PullRequestId) ($($pr.RepoName)): $($pr.SourceBranch) -> $($pr.TargetBranch)"
+        }
+        Set-Status "Dry run complete."
+        return
+    }
+
+    $confirm = [System.Windows.Forms.MessageBox]::Show(
+        "Abandon $($empty.Count) pull request(s) with no commits?",
+        "Confirm abandon",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Warning)
+    if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+
+    try {
+        $script:ApproveButton.Enabled      = $false
+        $script:AbandonEmptyButton.Enabled = $false
+        $script:FetchButton.Enabled        = $false
+
+        $abandoned = 0
+        $i = 0
+        foreach ($pr in $empty) {
+            $i++
+            Set-Status "Abandoning $i / $($empty.Count)..."
+            if (Close-PullRequest -RepoId $pr.RepositoryId -RepoName $pr.RepoName -PRId $pr.PullRequestId) {
+                $abandoned++
+            }
+        }
+
+        Write-LogSuccess "Abandoned $abandoned / $($empty.Count) empty PR(s)."
+        Set-Status "Abandoned $abandoned / $($empty.Count)."
+    }
+    finally {
+        $script:ApproveButton.Enabled      = $true
+        $script:FetchButton.Enabled        = $true
         Invoke-FetchPRs
     }
 }
@@ -401,6 +509,13 @@ $script:ApproveButton.Height  = 28
 $script:ApproveButton.Enabled = $false
 $script:ApproveButton.Add_Click({ Invoke-ApprovePRs })
 
+$script:AbandonEmptyButton = New-Object System.Windows.Forms.Button
+$script:AbandonEmptyButton.Text    = "Abandon empty PRs"
+$script:AbandonEmptyButton.Width   = 150
+$script:AbandonEmptyButton.Height  = 28
+$script:AbandonEmptyButton.Enabled = $false
+$script:AbandonEmptyButton.Add_Click({ Invoke-AbandonEmptyPRs })
+
 $selectAllBtn = New-Object System.Windows.Forms.Button
 $selectAllBtn.Text   = "Select all"
 $selectAllBtn.Width  = 90
@@ -419,6 +534,7 @@ $selectNoneBtn.Add_Click({
 
 $buttonPanel.Controls.Add($script:FetchButton)
 $buttonPanel.Controls.Add($script:ApproveButton)
+$buttonPanel.Controls.Add($script:AbandonEmptyButton)
 $buttonPanel.Controls.Add($selectAllBtn)
 $buttonPanel.Controls.Add($selectNoneBtn)
 
@@ -446,6 +562,7 @@ $script:ListView.GridLines     = $true
 [void]$script:ListView.Columns.Add("Source", 140)
 [void]$script:ListView.Columns.Add("Target", 140)
 [void]$script:ListView.Columns.Add("Author", 140)
+[void]$script:ListView.Columns.Add("Commits", 70)
 
 $split.Panel1.Controls.Add($script:ListView)
 
